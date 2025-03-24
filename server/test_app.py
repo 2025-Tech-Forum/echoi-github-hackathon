@@ -12,13 +12,14 @@ class TestApp(unittest.TestCase):
         # Turn off database initialization for tests
         app.config['TESTING'] = True
         
-    def _create_mock_dog(self, dog_id, name, breed):
+    def _create_mock_dog(self, dog_id, name, breed, status):
         """Helper method to create a mock dog with standard attributes"""
-        dog = MagicMock(spec=['to_dict', 'id', 'name', 'breed'])
+        dog = MagicMock(spec=['to_dict', 'id', 'name', 'breed', 'status'])
         dog.id = dog_id
         dog.name = name
         dog.breed = breed
-        dog.to_dict.return_value = {'id': dog_id, 'name': name, 'breed': breed}
+        dog.status = status
+        dog.to_dict.return_value = {'id': dog_id, 'name': name, 'breed': breed, 'status': status}
         return dog
         
     def _setup_query_mock(self, mock_query, dogs):
@@ -33,8 +34,8 @@ class TestApp(unittest.TestCase):
     def test_get_dogs_success(self, mock_query):
         """Test successful retrieval of multiple dogs"""
         # Arrange
-        dog1 = self._create_mock_dog(1, "Buddy", "Labrador")
-        dog2 = self._create_mock_dog(2, "Max", "German Shepherd")
+        dog1 = self._create_mock_dog(1, "Buddy", "Labrador", "available")
+        dog2 = self._create_mock_dog(2, "Max", "German Shepherd", "adopted")
         mock_dogs = [dog1, dog2]
         
         self._setup_query_mock(mock_query, mock_dogs)
@@ -52,11 +53,13 @@ class TestApp(unittest.TestCase):
         self.assertEqual(data[0]['id'], 1)
         self.assertEqual(data[0]['name'], "Buddy")
         self.assertEqual(data[0]['breed'], "Labrador")
+        self.assertEqual(data[0]['status'], "available")
         
         # Verify second dog
         self.assertEqual(data[1]['id'], 2)
         self.assertEqual(data[1]['name'], "Max")
         self.assertEqual(data[1]['breed'], "German Shepherd")
+        self.assertEqual(data[1]['status'], "adopted")
         
         # Verify query was called
         mock_query.assert_called_once()
@@ -79,7 +82,7 @@ class TestApp(unittest.TestCase):
     def test_get_dogs_structure(self, mock_query):
         """Test the response structure for a single dog"""
         # Arrange
-        dog = self._create_mock_dog(1, "Buddy", "Labrador")
+        dog = self._create_mock_dog(1, "Buddy", "Labrador", "available")
         self._setup_query_mock(mock_query, [dog])
         
         # Act
@@ -89,8 +92,67 @@ class TestApp(unittest.TestCase):
         data = json.loads(response.data)
         self.assertTrue(isinstance(data, list))
         self.assertEqual(len(data), 1)
-        self.assertEqual(set(data[0].keys()), {'id', 'name', 'breed'})
+        self.assertEqual(set(data[0].keys()), {'id', 'name', 'breed', 'status'})
 
+    @patch('app.db.session.query')
+    def test_get_dogs_with_status(self, mock_query):
+        """Test retrieval of dogs with status field"""
+        # Arrange
+        dog1 = self._create_mock_dog(1, "Buddy", "Labrador", "available")
+        dog2 = self._create_mock_dog(2, "Max", "German Shepherd", "adopted")
+        mock_dogs = [dog1, dog2]
+
+        self._setup_query_mock(mock_query, mock_dogs)
+
+        # Act
+        response = self.app.get('/api/dogs')
+
+        # Assert
+        self.assertEqual(response.status_code, 200)
+
+        data = json.loads(response.data)
+        self.assertEqual(len(data), 2)
+
+        # Verify first dog
+        self.assertEqual(data[0]['id'], 1)
+        self.assertEqual(data[0]['name'], "Buddy")
+        self.assertEqual(data[0]['breed'], "Labrador")
+        self.assertEqual(data[0]['status'], "available")
+
+        # Verify second dog
+        self.assertEqual(data[1]['id'], 2)
+        self.assertEqual(data[1]['name'], "Max")
+        self.assertEqual(data[1]['breed'], "German Shepherd")
+        self.assertEqual(data[1]['status'], "adopted")
+
+        # Verify query was called
+        mock_query.assert_called_once()
+
+    @patch('app.db.session.query')
+    def test_get_only_available_dogs(self, mock_query):
+        """Test filtering to retrieve only available dogs"""
+        # Arrange
+        dog1 = self._create_mock_dog(1, "Buddy", "Labrador", "available")
+        dog2 = self._create_mock_dog(2, "Max", "German Shepherd", "adopted")
+        mock_dogs = [dog1, dog2]
+
+        self._setup_query_mock(mock_query, mock_dogs)
+
+        # Act
+        response = self.app.get('/api/dogs')
+
+        # Assert
+        self.assertEqual(response.status_code, 200)
+
+        data = json.loads(response.data)
+        available_dogs = [dog for dog in data if dog['status'] == "available"]
+
+        # Verify only available dogs are included
+        self.assertEqual(len(available_dogs), 1)
+        self.assertEqual(available_dogs[0]['id'], 1)
+        self.assertEqual(available_dogs[0]['name'], "Buddy")
+        self.assertEqual(available_dogs[0]['breed'], "Labrador")
+        self.assertEqual(available_dogs[0]['status'], "available")
 
 if __name__ == '__main__':
     unittest.main()
